@@ -9,7 +9,7 @@ Interface web desenvolvida em **React.js** para gerenciamento de usuários, unid
 - React.js
 - Axios
 - React Router DOM
-- CSS / Tailwind (se estiver usando)
+- CSS
 
 ---
 
