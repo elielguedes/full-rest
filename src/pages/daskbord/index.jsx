@@ -1,4 +1,3 @@
-
 import { Bar } from 'react-chartjs-2';
 import 'chart.js/auto';
 import { useEffect, useState } from 'react';
@@ -9,135 +8,202 @@ export default function Dashboard() {
   const [locations, setLocations] = useState(0);
   const [gestoes, setGestoes] = useState(0);
   const [leitos, setLeitos] = useState(0);
+
   const [pipelineStatus, setPipelineStatus] = useState("");
   const [loading, setLoading] = useState(true);
+  const [runningPipeline, setRunningPipeline] = useState(false);
+
+  const token = localStorage.getItem('token');
+
+  // 🔥 FETCH CORRIGIDO
+  async function fetchData() {
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const getSafe = async (url) => {
+      try {
+        const res = await fetch(url, { headers });
+
+        if (!res.ok) {
+          console.error("Erro HTTP:", url, res.status);
+          return null;
+        }
+
+        return await res.json();
+      } catch (err) {
+        console.error("Erro FETCH:", url, err);
+        return null;
+      }
+    };
+
+    try {
+      const [
+        usersData,
+        unidadesData,
+        locationsData,
+        gestaoData,
+        leitosData
+      ] = await Promise.all([
+        getSafe('http://127.0.0.1:8000/user/all'),
+        getSafe('http://127.0.0.1:8000/unidade-saude/lista'),
+        getSafe('http://127.0.0.1:8000/entidade2/listar-location'),
+        getSafe('http://127.0.0.1:8000/entidade2/gestao/get'),
+        getSafe('http://127.0.0.1:8000/entidade2/leitos'),
+      ]);
+
+      // DEBUG
+      console.log("LOCATIONS:", locationsData);
+      console.log("LEITOS:", leitosData);
+
+      // ✅ USERS
+      setUsuarios(Array.isArray(usersData) ? usersData.length : 0);
+
+      // ✅ UNIDADES
+      setUnidades(
+        Array.isArray(unidadesData?.Unidades)
+          ? unidadesData.Unidades.length
+          : 0
+      );
+
+      // 🔥 LOCATION (ROBUSTO)
+      let totalLocations = 0;
+
+      if (locationsData) {
+        if (Array.isArray(locationsData.locate)) {
+          totalLocations = locationsData.locate.length;
+        } else if (Array.isArray(locationsData)) {
+          totalLocations = locationsData.length;
+        } else {
+          console.warn("Formato inesperado LOCATION:", locationsData);
+        }
+      }
+
+      setLocations(totalLocations);
+
+      // ✅ GESTAO
+      setGestoes(
+        Array.isArray(gestaoData)
+          ? gestaoData.length
+          : 0
+      );
+
+      // 🔥 LEITOS (ROBUSTO)
+      let totalLeitos = 0;
+
+      if (leitosData) {
+        if (Array.isArray(leitosData)) {
+          totalLeitos = leitosData.length;
+        } else if (Array.isArray(leitosData.leitos)) {
+          totalLeitos = leitosData.leitos.length;
+        } else {
+          console.warn("Formato inesperado LEITOS:", leitosData);
+        }
+      }
+
+      setLeitos(totalLeitos);
+
+      setPipelineStatus("");
+
+    } catch (err) {
+      console.error("Erro geral:", err);
+      setPipelineStatus("Erro ao carregar dados");
+    }
+  }
 
   useEffect(() => {
-    async function fetchData() {
-      const token = localStorage.getItem('token');
-      try {
-        // Usuários
-        const resUsers = await fetch('http://127.0.0.1:8000/user/all', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const usersData = await resUsers.json();
-        setUsuarios(usersData.length);
-
-        // Unidades de Saúde
-        const resUnidades = await fetch('http://127.0.0.1:8000/unidade-saude/lista', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const unidadesData = await resUnidades.json();
-        setUnidades(unidadesData.Unidades ? unidadesData.Unidades.length : 0);
-
-        // Locations
-        const resLocations = await fetch('http://127.0.0.1:8000/entidade2/listar-location', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const locationsData = await resLocations.json();
-        setLocations(locationsData.locate ? locationsData.locate.length : 0);
-
-        // Gestao
-        const resGestao = await fetch('http://127.0.0.1:8000/entidade2/gestao/get', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const gestaoData = await resGestao.json();
-        setGestoes(Array.isArray(gestaoData) ? gestaoData.length : 0);
-
-        // Leitos
-        const resLeitos = await fetch('http://127.0.0.1:8000/entidade2/leitos', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const leitosData = await resLeitos.json();
-        setLeitos(Array.isArray(leitosData) ? leitosData.length : 0);
-      } catch (err) {
-        alert('Erro ao buscar dados do dashboard');
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchData();
+    fetchData().finally(() => setLoading(false));
   }, []);
 
+  // 🚀 PIPELINE
   async function runPipeline() {
-    setPipelineStatus("Executando...");
+    setRunningPipeline(true);
+    setPipelineStatus("Executando pipeline...");
+
     try {
-      const token = localStorage.getItem('token');
       const res = await fetch('http://127.0.0.1:8000/pipeline/run', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
+
+      if (!res.ok) throw new Error("Erro no pipeline");
+
       const data = await res.json();
-      setPipelineStatus(data.mensagem || 'Executado!');
-    } catch {
+
+      setPipelineStatus(data.mensagem || "Pipeline executado!");
+
+      // 🔥 RECARREGA DADOS
+      setTimeout(async () => {
+        await fetchData();
+        setRunningPipeline(false);
+      }, 1500);
+
+    } catch (err) {
+      console.error(err);
       setPipelineStatus("Erro ao executar pipeline");
+      setRunningPipeline(false);
     }
   }
 
-  const data = {
+  // 📊 GRÁFICO
+  const chartData = {
     labels: ['Usuários', 'Unidades', 'Locations', 'Gestões', 'Leitos'],
     datasets: [
       {
         label: 'Total',
-        data: [usuarios, unidades, locations, gestoes, leitos],
-        backgroundColor: ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336'],
+        data: [
+          usuarios || 0,
+          unidades || 0,
+          locations || 0,
+          gestoes || 0,
+          leitos || 0
+        ],
+        borderRadius: 8,
       },
     ],
   };
 
+  const hasData = [usuarios, unidades, locations, gestoes, leitos]
+    .some(v => v > 0);
+
   return (
-    <div style={{
-      minHeight: '100vh',
-      width: '100vw',
-      background: 'linear-gradient(135deg, #f5f5f5 60%, #e0e7ff 100%)',
-      color: '#222',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'flex-start',
-      paddingTop: 60,
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      zIndex: 9999
-    }}>
-      <h1 style={{ marginBottom: 30 }}>Dashboard</h1>
+    <div style={styles.container}>
+      <h1 style={styles.title}>Dashboard</h1>
+
       {loading ? (
-        <p>Carregando...</p>
+        <div style={styles.loading}>🔄 Carregando dados...</div>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: '30px', marginBottom: '40px', flexWrap: 'wrap' }}>
-            <div style={{ background: '#fff', color: '#222', borderRadius: 10, padding: 20, minWidth: 180, textAlign: 'center', boxShadow: '0 2px 8px #0001' }}>
-              <h2>Usuários</h2>
-              <p style={{ fontSize: '2rem' }}>{usuarios}</p>
-            </div>
-            <div style={{ background: '#fff', color: '#222', borderRadius: 10, padding: 20, minWidth: 180, textAlign: 'center', boxShadow: '0 2px 8px #0001' }}>
-              <h2>Unidades de Saúde</h2>
-              <p style={{ fontSize: '2rem' }}>{unidades}</p>
-            </div>
-            <div style={{ background: '#fff', color: '#222', borderRadius: 10, padding: 20, minWidth: 180, textAlign: 'center', boxShadow: '0 2px 8px #0001' }}>
-              <h2>Locations</h2>
-              <p style={{ fontSize: '2rem' }}>{locations}</p>
-            </div>
-            <div style={{ background: '#fff', color: '#222', borderRadius: 10, padding: 20, minWidth: 180, textAlign: 'center', boxShadow: '0 2px 8px #0001' }}>
-              <h2>Gestões</h2>
-              <p style={{ fontSize: '2rem' }}>{gestoes}</p>
-            </div>
-            <div style={{ background: '#fff', color: '#222', borderRadius: 10, padding: 20, minWidth: 180, textAlign: 'center', boxShadow: '0 2px 8px #0001' }}>
-              <h2>Leitos</h2>
-              <p style={{ fontSize: '2rem' }}>{leitos}</p>
-            </div>
-            <div style={{ background: '#fff', color: '#222', borderRadius: 10, padding: 20, minWidth: 180, textAlign: 'center', boxShadow: '0 2px 8px #0001' }}>
-              <h2>Pipeline</h2>
-              <button onClick={runPipeline}>Executar Pipeline</button>
-              <p>{pipelineStatus}</p>
+          <div style={styles.cardsContainer}>
+            <Card title="Usuários" value={usuarios} />
+            <Card title="Unidades" value={unidades} />
+            <Card title="Locations" value={locations} />
+            <Card title="Gestões" value={gestoes} />
+            <Card title="Leitos" value={leitos} />
+
+            <div style={styles.card}>
+              <h3>Pipeline</h3>
+
+              <button
+                style={{
+                  ...styles.button,
+                  opacity: runningPipeline ? 0.6 : 1
+                }}
+                onClick={runPipeline}
+                disabled={runningPipeline}
+              >
+                {runningPipeline ? "Executando..." : "Executar"}
+              </button>
+
+              <p style={{ marginTop: 10 }}>{pipelineStatus}</p>
             </div>
           </div>
-          <div style={{ width: '500px', background: '#fff', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 8px #0001' }}>
-            {(usuarios === 0 && unidades === 0 && locations === 0 && gestoes === 0 && leitos === 0) ? (
-              <p style={{ color: '#222', textAlign: 'center' }}>Nenhum dado cadastrado ainda.</p>
+
+          <div style={styles.chartBox}>
+            {!hasData ? (
+              <p style={{ textAlign: 'center' }}>
+                Nenhum dado ainda. Execute o pipeline 🚀
+              </p>
             ) : (
-              <Bar data={data} />
+              <Bar data={chartData} />
             )}
           </div>
         </>
@@ -146,4 +212,67 @@ export default function Dashboard() {
   );
 }
 
+// 🔹 CARD
+function Card({ title, value }) {
+  return (
+    <div style={styles.card}>
+      <h3>{title}</h3>
+      <p style={styles.value}>{value}</p>
+    </div>
+  );
+}
 
+// 🎨 ESTILO
+const styles = {
+  container: {
+    minHeight: '100vh',
+    padding: '40px',
+    background: 'linear-gradient(135deg, #eef2ff, #f8fafc)',
+    fontFamily: 'Segoe UI',
+  },
+  title: {
+    textAlign: 'center',
+    marginBottom: '30px',
+  },
+  loading: {
+    textAlign: 'center',
+    fontSize: '18px',
+  },
+  cardsContainer: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '20px',
+    justifyContent: 'center',
+    marginBottom: '40px',
+  },
+  card: {
+    background: '#fff',
+    borderRadius: '12px',
+    padding: '20px',
+    minWidth: '180px',
+    textAlign: 'center',
+    boxShadow: '0 6px 15px rgba(0,0,0,0.08)',
+  },
+  value: {
+    fontSize: '2rem',
+    fontWeight: 'bold',
+    color: '#4f46e5',
+  },
+  chartBox: {
+    maxWidth: '800px',
+    margin: '0 auto',
+    background: '#fff',
+    padding: '20px',
+    borderRadius: '12px',
+    boxShadow: '0 6px 15px rgba(0,0,0,0.08)',
+  },
+  button: {
+    padding: '10px 15px',
+    border: 'none',
+    borderRadius: '8px',
+    background: '#4f46e5',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 'bold'
+  }
+};
